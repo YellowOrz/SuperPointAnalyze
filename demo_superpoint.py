@@ -504,7 +504,7 @@ class VideoStreamer(object):
            status: True or False depending whether image was loaded.
         """
         if self.i == self.maxlen:
-            return (None, False)
+            return (None, False, "")
         if self.camera:
             ret, input_image = self.cap.read()
             if ret is False:
@@ -516,13 +516,16 @@ class VideoStreamer(object):
                                      interpolation=cv2.INTER_AREA)
             input_image = cv2.cvtColor(input_image, cv2.COLOR_RGB2GRAY)
             input_image = input_image.astype('float') / 255.0
+            image_name = "frame_%05d.png" % self.i
         else:
             image_file = self.listing[self.i]
             input_image = self.read_image(image_file, self.sizer)
+            # image_name = os.path.splitext(os.path.basename(image_file))[0]
+            image_name = os.path.basename(image_file)
         # Increment internal counter.
         self.i = self.i + 1
         input_image = input_image.astype('float32')
-        return (input_image, True)
+        return input_image, True, image_name
 
 
 if __name__ == '__main__':
@@ -614,7 +617,7 @@ if __name__ == '__main__':
         start = time.time()
 
         # Get a new image.
-        img, status = vs.next_frame()
+        img, status, img_name = vs.next_frame()
         if status is False:
             break
 
@@ -672,7 +675,7 @@ if __name__ == '__main__':
 
         # Optionally write images to disk.
         if opt.write:
-            out_file = os.path.join(opt.write_dir, 'frame_%05d.png' % vs.i)
+            out_file = os.path.join(opt.write_dir, img_name)
             print('Writing image to %s' % out_file)
             cv2.imwrite(out_file, out)
 
