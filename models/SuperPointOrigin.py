@@ -1,11 +1,12 @@
 import torch
-
+from .SuperPointBN import pixel_shuffle
 
 class SuperPointOrigin(torch.nn.Module):
     """ Pytorch definition of SuperPoint Network. """
 
-    def __init__(self):
+    def __init__(self, grid_size=8):
         super(SuperPointOrigin, self).__init__()
+        self.grid_size = grid_size
         self.relu = torch.nn.ReLU(inplace=True)
         self.pool = torch.nn.MaxPool2d(kernel_size=2, stride=2)
         c1, c2, c3, c4, c5, d1 = 64, 64, 128, 128, 256, 256
@@ -25,6 +26,7 @@ class SuperPointOrigin(torch.nn.Module):
         self.convDa = torch.nn.Conv2d(c4, c5, kernel_size=3, stride=1, padding=1)
         self.convDb = torch.nn.Conv2d(c5, d1, kernel_size=1, stride=1, padding=0)
 
+        self.softmax = torch.nn.Softmax(dim=1)
     def forward(self, x):
         """ Forward pass that jointly computes unprocessed point and descriptor
         tensors.
@@ -54,4 +56,7 @@ class SuperPointOrigin(torch.nn.Module):
         desc = self.convDb(cDa)
         dn = torch.norm(desc, p=2, dim=1)  # Compute the norm.
         desc = desc.div(torch.unsqueeze(dn, 1))  # Divide by norm to normalize.
+
+        semi = self.softmax(semi)
+        semi = pixel_shuffle(semi[:,:-1], self.grid_size)  # [B,1,H*8,W*8]
         return semi, desc

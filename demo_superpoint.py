@@ -54,6 +54,8 @@ import cv2
 import torch
 import models
 from models.SuperPointOrigin import SuperPointOrigin
+from models.SuperPointBN import SuperPointBN
+
 
 # Stub to warn about opencv version.
 if int(cv2.__version__[0]) < 3:  # pragma: no cover
@@ -89,7 +91,7 @@ class SuperPointFrontend(object):
         self.net = models.__dict__[net_type].__dict__[net_type]()
         if cuda:
             # Train on GPU, deploy on GPU.
-            self.net.load_state_dict(torch.load(weights_path))
+            self.net.load_state_dict(torch.load(weights_path, map_location="cuda:0"))
             self.net = self.net.cuda()
         else:
             # Train on GPU, deploy on CPU.
@@ -181,22 +183,10 @@ class SuperPointFrontend(object):
         if self.cuda:
             inp = inp.cuda()
         # Forward pass of network.
-        outs = self.net.forward(inp)
-        semi, coarse_desc = outs[0], outs[1]
+        semi, coarse_desc = self.net.forward(inp)
         # Convert pytorch -> numpy.
-        semi = semi.data.cpu().numpy().squeeze()
-        # --- Process points.
-        dense = np.exp(semi)  # Softmax.
-        dense = dense / (np.sum(dense, axis=0) + .00001)  # Should sum to 1.
-        # Remove dustbin.
-        nodust = dense[:-1, :, :]
-        # Reshape to get full resolution heatmap.
-        Hc = int(H / self.cell)
-        Wc = int(W / self.cell)
-        nodust = nodust.transpose(1, 2, 0)
-        heatmap = np.reshape(nodust, [Hc, Wc, self.cell, self.cell])
-        heatmap = np.transpose(heatmap, [0, 2, 1, 3])
-        heatmap = np.reshape(heatmap, [Hc * self.cell, Wc * self.cell])
+        heatmap = semi.data.cpu().numpy()[0, 0]
+        # superpoint 3*N
         xs, ys = np.where(heatmap >= self.conf_thresh)  # Confidence threshold.
         if len(xs) == 0:
             return np.zeros((3, 0)), None, None
@@ -204,7 +194,7 @@ class SuperPointFrontend(object):
         pts[0, :] = ys
         pts[1, :] = xs
         pts[2, :] = heatmap[xs, ys]
-        pts, _ = self.nms_fast(pts, H, W, dist_thresh=self.nms_dist)  # Apply NMS.
+        pts, _ = self.nms_fast(pts, H, W, dist_thresh=self.nms_dist)  # Apply NMS. 非极大值抑制
         inds = np.argsort(pts[2, :])
         pts = pts[:, inds[::-1]]  # Sort by confidence.
         # Remove points along border.
@@ -534,7 +524,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PyTorch SuperPoint Demo.')
     parser.add_argument('input', type=str, default='',
                         help='Image directory or movie file or "camera" (for webcam).')
-    parser.add_argument('--weights_path', type=str, default='superpoint_v1.pth',
+    parser.add_argument('--weights_path', type=str, default='./ckpt/superpoint_v1.pth',
                         help='Path to pretrained weights file (default: superpoint_v1.pth).')
     parser.add_argument('--img_glob', type=str, default='*.png',
                         help='Glob match if directory of images is specified (default: \'*.png\').')
