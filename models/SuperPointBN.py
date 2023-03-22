@@ -10,9 +10,8 @@ class VGGBackbone(torch.nn.Module):
          of pretrained model `superpoint_bn.pth`
     """
 
-    def __init__(self, config, input_channel=1, device='cpu'):
+    def __init__(self, config, input_channel=1):
         super(VGGBackbone, self).__init__()
-        self.device = device
         channels = config['channels']
 
         self.block1_1 = torch.nn.Sequential(
@@ -71,9 +70,8 @@ class VGGBackboneBN(torch.nn.Module):
          of pretrained model `superpoint_bn.pth`
     """
 
-    def __init__(self, config, input_channel=1, device='cpu'):
+    def __init__(self, config, input_channel=1):
         super(VGGBackboneBN, self).__init__()
-        self.device = device
         channels = config['channels']
 
         self.block1_1 = torch.nn.Sequential(
@@ -192,18 +190,33 @@ def box_nms(prob, size=4, iou=0.1, min_prob=0.015, keep_top_k=-1):
     return nms_prob.unsqueeze(dim=0)
 
 
-class SuperPointBNNet(torch.nn.Module):
+class SuperPointBN(torch.nn.Module):
     """ Pytorch definition of SuperPoint Network. """
 
-    def __init__(self, config, input_channel=1, grid_size=8, device='cpu', using_bn=True):
-        super(SuperPointBNNet, self).__init__()
+    def __init__(self, input_channel=1, grid_size=8, using_bn=True):
+        super(SuperPointBN, self).__init__()
+        config = {"name": 'superpoint',
+                  "using_bn": True,
+                  "grid_size": 8,
+                  "pretrained_model": './export/sp_0.pth',
+                  "nms": 8,
+                  "det_thresh": 0.001,  # 0.001
+                  "topk": 1000,
+                  "learning_rate": 0.001,
+                  "backbone": {"backbone_type": 'VGG',
+                               "vgg": {"channels": [64, 64, 64, 64, 128, 128, 128, 128]},},
+                  "det_head": {  # detector head
+                      "feat_in_dim": 128},
+                  "des_head": {  # descriptor head
+                      "feat_in_dim": 128,
+                      "feat_out_dim": 256}}
         self.nms = config['nms']
         self.det_thresh = config['det_thresh']
         self.topk = config['topk']
         if using_bn:
-            self.backbone = VGGBackboneBN(config['backbone']['vgg'], input_channel, device=device)
+            self.backbone = VGGBackboneBN(config['backbone']['vgg'], input_channel)
         else:
-            self.backbone = VGGBackbone(config['backbone']['vgg'], input_channel, device=device)
+            self.backbone = VGGBackbone(config['backbone']['vgg'], input_channel)
         ##
         self.detector_head = DetectorHead(input_channel=config['det_head']['feat_in_dim'],
                                           grid_size=grid_size, using_bn=using_bn)
@@ -228,18 +241,19 @@ class SuperPointBNNet(torch.nn.Module):
 
         prob = det_outputs['prob']
         if self.nms is not None:
-            prob = [box_nms(p.unsqueeze(dim=0),
+            prob = [box_nms(p,
                             self.nms,
                             min_prob=self.det_thresh,
                             keep_top_k=self.topk).squeeze(dim=0) for p in prob]
-            prob = torch.stack(prob)
-            det_outputs.setdefault('prob_nms', prob)
+            prob = torch.stack(prob).unsqueeze(0)
+        #     det_outputs.setdefault('prob_nms', prob)
 
-        pred = prob[prob >= self.det_thresh]
-        det_outputs.setdefault('pred', pred)
+        # pred = prob[prob >= self.det_thresh]
+        # det_outputs.setdefault('pred', pred)
 
         desc_outputs = self.descriptor_head(feat_map)
-        return {'det_info': det_outputs, 'desc_info': desc_outputs}
+        desc = desc_outputs['desc']
+        return prob, desc
 
 
 class DetectorHead(torch.nn.Module):
@@ -273,7 +287,7 @@ class DetectorHead(torch.nn.Module):
         prob = prob[:, :-1, :, :]  # remove dustbin,[B,64,H,W]
         # Reshape to get full resolution heatmap.
         prob = pixel_shuffle(prob, self.grid_size)  # [B,1,H*8,W*8]
-        prob = prob.squeeze(dim=1)  # [B,H,W]
+        # prob = prob.squeeze(dim=1)  # [B,H,W]
 
         return {'logits': out, 'prob': prob}
 
@@ -306,14 +320,20 @@ class DescriptorHead(torch.nn.Module):
         # out_norm = torch.norm(out, p=2, dim=1)  # Compute the norm.
         # out = out.div(torch.unsqueeze(out_norm, 1))  # Divide by norm to normalize.
 
-        # TODO: here is different with tf.image.resize_bilinear
-        desc = F.interpolate(out, scale_factor=self.grid_size, mode='bilinear', align_corners=False)
-        desc = F.normalize(desc, p=2, dim=1)  # normalize by channel
+        # # TODO: here is different with tf.image.resize_bilinear
+        # desc = F.interpolate(out, scale_factor=self.grid_size, mode='bilinear', align_corners=False)
+        # desc = F.normalize(desc, p=2, dim=1)  # normalize by channel
+
+        # 跟SuperPointOrigin一样
+        dn = torch.norm(out, p=2, dim=1)  # Compute the norm.
+        desc = out.div(torch.unsqueeze(dn, 1))  # Divide by norm to normalize.
 
         return {'desc_raw': out, 'desc': desc}
 
 
 if __name__ == '__main__':
-    model = SuperPointBNNet()
-    model.load_state_dict(torch.load('../ckpt/superpoint_bn.pth'))
+    import os
+    os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+    model = SuperPointBN().cuda()
+    model.load_state_dict(torch.load('../ckpt/superpoint_bn.pth', map_location='cuda:0'))
     print('Done')

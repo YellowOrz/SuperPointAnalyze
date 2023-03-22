@@ -197,7 +197,7 @@ class SuperPointFrontend(object):
         pts, _ = self.nms_fast(pts, H, W, dist_thresh=self.nms_dist)  # Apply NMS. 非极大值抑制
         inds = np.argsort(pts[2, :])
         pts = pts[:, inds[::-1]]  # Sort by confidence.
-        # Remove points along border.
+        # Remove points along border. 删除距离边缘太近的点
         bord = self.border_remove
         toremoveW = np.logical_or(pts[0, :] < bord, pts[0, :] >= (W - bord))
         toremoveH = np.logical_or(pts[1, :] < bord, pts[1, :] >= (H - bord))
@@ -209,11 +209,11 @@ class SuperPointFrontend(object):
             desc = np.zeros((D, 0))
         else:
             # Interpolate into descriptor map using 2D point locations.
-            samp_pts = torch.from_numpy(pts[:2, :].copy())
-            samp_pts[0, :] = (samp_pts[0, :] / (float(W) / 2.)) - 1.
+            samp_pts = torch.from_numpy(pts[:2, :].copy())              # 所有特征点的位置 (2, N)
+            samp_pts[0, :] = (samp_pts[0, :] / (float(W) / 2.)) - 1.    # 位置归一化到-0.5~0.5
             samp_pts[1, :] = (samp_pts[1, :] / (float(H) / 2.)) - 1.
-            samp_pts = samp_pts.transpose(0, 1).contiguous()
-            samp_pts = samp_pts.view(1, 1, -1, 2)
+            samp_pts = samp_pts.transpose(0, 1).contiguous()            # 维度转换成(N,2)
+            samp_pts = samp_pts.view(1, 1, -1, 2)                       # 维度转换成(1, 1, N,2)
             samp_pts = samp_pts.float()
             if self.cuda:
                 samp_pts = samp_pts.cuda()
