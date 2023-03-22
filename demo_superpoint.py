@@ -55,6 +55,7 @@ import torch
 import models
 from models.SuperPointOrigin import SuperPointOrigin
 from models.SuperPointBN import SuperPointBN
+from models.SuperPointEric import SuperPointEric
 
 
 # Stub to warn about opencv version.
@@ -90,8 +91,11 @@ class SuperPointFrontend(object):
         # Load the network in inference mode.
         self.net = models.__dict__[net_type].__dict__[net_type]()
         if cuda:
+            if net_type == "SuperPointEric":
+                self.net.load_state_dict(torch.load(weights_path)['model_state_dict'])
+            else:
             # Train on GPU, deploy on GPU.
-            self.net.load_state_dict(torch.load(weights_path, map_location="cuda:0"))
+                self.net.load_state_dict(torch.load(weights_path, map_location="cuda:0"))
             self.net = self.net.cuda()
         else:
             # Train on GPU, deploy on CPU.
@@ -561,7 +565,7 @@ if __name__ == '__main__':
     parser.add_argument('--write_dir', type=str, default='tracker_outputs/',
                         help='Directory where to write output frames (default: tracker_outputs/).')
     parser.add_argument('--net_type', type=str, default='SuperPointOrigin',
-                        choices=['SuperPointOrigin', 'SuperPointBN'],
+                        choices=['SuperPointOrigin', 'SuperPointBN', 'SuperPointEric'],
                         help='Type of SuperPoint (default: SuperPointOrigin).')
     opt = parser.parse_args()
     print(opt)
